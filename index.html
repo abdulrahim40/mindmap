@@ -1,9 +1,12 @@
+Saya akan menambahkan fitur drag & drop node untuk memindahkan node (mengubah parent atau urutan sibling) dengan antarmuka sentuh/mouse. Saat node di-drag, muncul visualisasi node semu, dan saat dilepas, Anda dapat memilih apakah node tersebut menjadi anak dari node target atau saudara (sejajar) dari node target. Berikut kode lengkap yang sudah diperbarui:
+
+```html
 <!DOCTYPE html>
 <html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
-    <title>MindForge Touch | Mind Map dengan Tombol Plus</title>
+    <title>MindForge Drag | Mind Map dengan Drag & Drop</title>
     <!-- Tailwind CSS + Font Awesome -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -39,7 +42,6 @@
         body { background: linear-gradient(135deg, #f5f7fc 0%, #e9eef5 100%); min-height: 100vh; }
         .card-hover { transition: all 0.2s ease; }
         .card-hover:active { transform: scale(0.98); }
-        /* Node kotak */
         .node-rect {
             fill: #ffffff;
             stroke: #64748b;
@@ -48,12 +50,16 @@
             ry: 12;
             filter: drop-shadow(0 4px 6px rgba(0,0,0,0.05));
             transition: all 0.1s ease;
-            cursor: pointer;
+            cursor: grab;
         }
         .node-rect-active {
             stroke: #3b82f6;
             stroke-width: 3.5;
             filter: drop-shadow(0 0 10px rgba(59,130,246,0.4));
+        }
+        .node-rect-dragging {
+            cursor: grabbing;
+            opacity: 0.7;
         }
         .node-text {
             font-size: 14px;
@@ -74,38 +80,30 @@
             transition: 0.1s ease;
         }
         .action-btn:active { transform: scale(0.85); }
-        .btn-bg {
-            fill: #3b82f6;
-            stroke: white;
+        .mindmap-svg { background: #fefefe; border-radius: 28px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); touch-action: none; }
+        .drag-ghost {
+            fill: #cbd5e1;
+            stroke: #3b82f6;
             stroke-width: 2;
-        }
-        .btn-icon {
-            fill: white;
-            font-size: 12px;
-            font-weight: bold;
-            dominant-baseline: central;
-            text-anchor: middle;
+            rx: 12;
+            opacity: 0.8;
             pointer-events: none;
         }
-        @media (max-width: 640px) {
-            .node-rect { stroke-width: 2; }
-            .node-text { font-size: 13px; }
-            .action-btn circle { r: 14; }
-        }
-        .mindmap-svg { background: #fefefe; border-radius: 28px; box-shadow: 0 8px 30px rgba(0,0,0,0.08); touch-action: none; }
-        /* scrollbar */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #e2e8f0; border-radius: 10px; }
         ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
+        @media (max-width: 640px) {
+            .node-rect { stroke-width: 2; cursor: grab; }
+            .node-text { font-size: 13px; }
+        }
     </style>
 </head>
 <body class="antialiased touch-manipulation">
 <div id="app" class="max-w-7xl mx-auto px-3 sm:px-6 py-4 md:py-8">
-    <!-- Header -->
     <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div class="flex items-center gap-2">
             <i class="fas fa-project-diagram text-2xl md:text-3xl text-indigo-600"></i>
-            <h1 class="text-xl md:text-2xl font-bold bg-gradient-to-r from-indigo-700 to-purple-700 bg-clip-text text-transparent">MindForge Touch</h1>
+            <h1 class="text-xl md:text-2xl font-bold bg-gradient-to-r from-indigo-700 to-purple-700 bg-clip-text text-transparent">MindForge Drag</h1>
         </div>
         <div class="flex gap-2">
             <button id="backToDashboardBtn" class="hidden bg-white/80 backdrop-blur-sm text-slate-700 font-medium py-2 px-3 rounded-xl shadow-sm border text-sm"><i class="fas fa-arrow-left"></i> Dashboard</button>
@@ -113,12 +111,11 @@
         </div>
     </div>
 
-    <!-- DASHBOARD CARDS -->
     <div id="dashboardView">
         <div class="flex justify-between items-center mb-5 flex-wrap gap-2">
             <div>
                 <h2 class="text-lg font-semibold text-slate-800"><i class="fas fa-th-large mr-2 text-indigo-500"></i> Peta Pikiran</h2>
-                <p class="text-slate-500 text-xs">Tekan card untuk buka | Sentuh node → muncul tombol ➕</p>
+                <p class="text-slate-500 text-xs">Tekan card untuk buka | Drag node untuk pindah (anak/saudara)</p>
             </div>
             <button id="addCardBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl shadow-md flex items-center gap-2 text-sm font-medium"><i class="fas fa-plus-circle"></i> Card Baru</button>
         </div>
@@ -127,7 +124,6 @@
         </div>
     </div>
 
-    <!-- MIND MAP VIEW dengan canvas + tombol interaksi -->
     <div id="mindmapView" class="hidden">
         <div class="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
             <div class="bg-gradient-to-r from-indigo-50 to-white px-4 py-3 border-b flex flex-wrap justify-between items-center gap-2">
@@ -136,16 +132,15 @@
                     <input type="text" id="mindmapTitleInput" class="text-lg md:text-xl font-bold bg-transparent border-0 focus:ring-0 outline-none text-slate-800 flex-1 min-w-0 px-1" placeholder="Judul">
                     <button id="saveTitleBtn" class="text-indigo-600 text-sm px-2"><i class="fas fa-save"></i></button>
                 </div>
-                <div class="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full whitespace-nowrap"><i class="fas fa-mobile-alt"></i> Sentuh node ➕ | Tab/Enter</div>
+                <div class="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full whitespace-nowrap"><i class="fas fa-arrows-alt"></i> Drag node untuk memindah</div>
             </div>
             <div class="relative" style="height: 65vh; min-height: 500px;">
                 <div id="mindmapCanvas" class="w-full h-full overflow-hidden bg-white">
                     <svg id="treeSvg" width="100%" height="100%" viewBox="0 0 1000 600" class="mindmap-svg" style="touch-action: pan-x pan-y;"></svg>
                 </div>
             </div>
-            <!-- Info panel kecil ramah sentuh -->
             <div class="bg-slate-50 px-4 py-2 text-xs text-slate-500 flex justify-between items-center border-t">
-                <span><i class="fas fa-hand-pointer mr-1"></i> Klik node aktifkan tombol plus</span>
+                <span><i class="fas fa-hand-pointer mr-1"></i> Klik node ➕ | Drag untuk memindah</span>
                 <span><i class="fas fa-keyboard"></i> Tab (anak) | Enter (saudara)</span>
             </div>
         </div>
@@ -170,7 +165,6 @@
     const PASSWORD = "12354";
     let loggedIn = sessionStorage.getItem("mindmap_auth") === "true";
     
-    // DOM elements
     const dashboardView = document.getElementById("dashboardView");
     const mindmapView = document.getElementById("mindmapView");
     const backBtn = document.getElementById("backToDashboardBtn");
@@ -180,14 +174,16 @@
     const mindmapTitleInput = document.getElementById("mindmapTitleInput");
     const saveTitleBtn = document.getElementById("saveTitleBtn");
     
-    // State
     let currentMindmapId = null;
-    let currentTreeData = null;      // { id, text, children }
+    let currentTreeData = null;
     let selectedNodeId = null;
     let svgElement, mainG, zoomBehavior;
     let currentTransform = null;
+    // variabel drag
+    let dragEnabled = true;
+    let dragSubject = null;
+    let dragGhostGroup = null;
     
-    // Helper functions
     function generateId() { return Date.now() + '-' + Math.random().toString(36).substr(2, 8); }
     function createDefaultTree(title = "Peta Pikiran Baru") {
         return { id: generateId(), text: title, children: [] };
@@ -200,29 +196,86 @@
         return null;
     }
     
-    // Auto hapus node jika teks kosong (kecuali root)
-    function tryDeleteEmptyNode(nodeId) {
-        if (nodeId === currentTreeData?.id) return false;
-        const node = findNodeById(currentTreeData, nodeId);
-        if (node && node.text.trim() === "") {
-            function removeFromParent(parent, idToRemove) {
-                if (parent.children) {
-                    const idx = parent.children.findIndex(ch => ch.id === idToRemove);
-                    if (idx !== -1) { parent.children.splice(idx, 1); return true; }
-                    for (let child of parent.children) if (removeFromParent(child, idToRemove)) return true;
-                }
-                return false;
+    function findParentNode(root, childId) {
+        if (root.id === childId) return null;
+        if (root.children) {
+            for (let child of root.children) {
+                if (child.id === childId) return root;
+                const found = findParentNode(child, childId);
+                if (found) return found;
             }
-            removeFromParent(currentTreeData, nodeId);
-            if (selectedNodeId === nodeId) selectedNodeId = currentTreeData.id;
-            renderMindMap();
-            saveToFirebase();
+        }
+        return null;
+    }
+    
+    function removeNodeFromParent(nodeId) {
+        const parent = findParentNode(currentTreeData, nodeId);
+        if (!parent) return false;
+        const index = parent.children.findIndex(ch => ch.id === nodeId);
+        if (index !== -1) {
+            parent.children.splice(index, 1);
             return true;
         }
         return false;
     }
     
-    // Operasi node
+    // Fungsi untuk memindahkan node sebagai anak dari targetNodeId
+    function moveAsChild(draggedNodeId, targetNodeId) {
+        if (draggedNodeId === targetNodeId) return false;
+        // cek apakah target adalah keturunan dari dragged? (tidak boleh siklus)
+        let isDescendant = false;
+        function checkDescendant(node, ancestorId) {
+            if (node.id === ancestorId) return true;
+            if (node.children) for (let child of node.children) if (checkDescendant(child, ancestorId)) return true;
+            return false;
+        }
+        if (checkDescendant(findNodeById(currentTreeData, targetNodeId), draggedNodeId)) return false;
+        
+        const draggedNode = findNodeById(currentTreeData, draggedNodeId);
+        if (!draggedNode) return false;
+        const targetNode = findNodeById(currentTreeData, targetNodeId);
+        if (!targetNode) return false;
+        
+        // Hapus dari parent lama
+        const removed = removeNodeFromParent(draggedNodeId);
+        if (!removed && draggedNodeId !== currentTreeData.id) return false;
+        
+        // Jika dragged adalah root, tidak bisa dipindah
+        if (draggedNodeId === currentTreeData.id) return false;
+        
+        if (!targetNode.children) targetNode.children = [];
+        targetNode.children.push(draggedNode);
+        return true;
+    }
+    
+    // Memindahkan sebagai saudara (sejajar) dari targetNodeId, ditempatkan setelah targetNode
+    function moveAsSibling(draggedNodeId, targetNodeId) {
+        if (draggedNodeId === targetNodeId) return false;
+        if (draggedNodeId === currentTreeData.id) return false;
+        
+        const draggedNode = findNodeById(currentTreeData, draggedNodeId);
+        if (!draggedNode) return false;
+        const targetNode = findNodeById(currentTreeData, targetNodeId);
+        if (!targetNode) return false;
+        
+        // Cari parent dari target
+        const targetParent = findParentNode(currentTreeData, targetNodeId);
+        if (!targetParent) return false; // target adalah root? root tidak bisa punya saudara
+        // Hapus dragged dari parent lamanya
+        const removed = removeNodeFromParent(draggedNodeId);
+        if (!removed) return false;
+        
+        // Sisipkan setelah targetNode di dalam parent yang sama
+        const targetIndex = targetParent.children.findIndex(ch => ch.id === targetNodeId);
+        if (targetIndex !== -1) {
+            targetParent.children.splice(targetIndex + 1, 0, draggedNode);
+        } else {
+            targetParent.children.push(draggedNode);
+        }
+        return true;
+    }
+    
+    // Operasi node lainnya (addChild, addSibling, edit, hapus otomatis)
     function addChild(nodeId) {
         const parent = findNodeById(currentTreeData, nodeId);
         if (!parent) return;
@@ -232,17 +285,11 @@
         renderMindMap();
         saveToFirebase();
         selectedNodeId = newNode.id;
-        highlightSelectedNode();
     }
     
     function addSibling(nodeId) {
-        if (nodeId === currentTreeData.id) return; // root tidak punya saudara
-        function findParent(root, childId, parent = null) {
-            if (root.id === childId) return parent;
-            if (root.children) for (let child of root.children) { const found = findParent(child, childId, root); if (found !== undefined) return found; }
-            return undefined;
-        }
-        const parent = findParent(currentTreeData, nodeId);
+        if (nodeId === currentTreeData.id) return;
+        const parent = findParentNode(currentTreeData, nodeId);
         if (!parent) return;
         const newNode = { id: generateId(), text: "Baru", children: [] };
         const index = parent.children.findIndex(ch => ch.id === nodeId);
@@ -251,7 +298,6 @@
         renderMindMap();
         saveToFirebase();
         selectedNodeId = newNode.id;
-        highlightSelectedNode();
     }
     
     async function editNodeText(nodeId) {
@@ -261,9 +307,12 @@
         if (newText !== null) {
             node.text = newText;
             renderMindMap();
-            const deleted = tryDeleteEmptyNode(nodeId);
-            if (!deleted) saveToFirebase();
-            highlightSelectedNode();
+            if (node.text.trim() === "" && nodeId !== currentTreeData.id) {
+                removeNodeFromParent(nodeId);
+                if (selectedNodeId === nodeId) selectedNodeId = currentTreeData.id;
+                renderMindMap();
+            }
+            saveToFirebase();
         }
     }
     
@@ -278,7 +327,7 @@
         } catch(e) { console.warn(e); }
     }
     
-    // ----------------------------- D3 TREE dengan TOMBOL PLUS (Kanan & Bawah) -----------------------------
+    // D3 tree rendering dengan drag behavior
     function initMindmapSVG() {
         const container = document.getElementById("mindmapCanvas");
         const width = container.clientWidth || 1000;
@@ -294,7 +343,6 @@
             mainG.attr("transform", event.transform);
         });
         svgElement.call(zoomBehavior);
-        // reset zoom awal
         svgElement.call(zoomBehavior.transform, d3.zoomIdentity.translate(80, 150).scale(0.8));
     }
     
@@ -315,7 +363,7 @@
         const treeLayout = d3.tree().nodeSize([85, 230]).size([height - 110, width - 200]);
         const treeRoot = treeLayout(root);
         
-        // Draw links
+        // Links
         const links = treeRoot.links();
         mainG.selectAll(".link-line").remove();
         mainG.selectAll(".link-line")
@@ -325,73 +373,140 @@
             .attr("class", "link-line")
             .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
         
-        // Node groups
+        // Nodes
         const nodes = mainG.selectAll(".node-group").data(treeRoot.descendants(), d => d.data.id);
-        // Remove existing plus buttons group
         mainG.selectAll(".plus-buttons-group").remove();
         
-        const nodeEnter = nodes.enter().append("g")
+        // Drag behavior
+        const dragHandler = d3.drag()
+            .on("start", function(event, d) {
+                if (event.sourceEvent.target.closest('.action-btn')) return; // jangan ganggu tombol plus
+                if (d.data.id === currentTreeData.id) return; // root tidak bisa drag
+                dragSubject = d.data;
+                // buat ghost
+                dragGhostGroup = mainG.append("g")
+                    .attr("class", "drag-ghost-group")
+                    .attr("transform", `translate(${d.y},${d.x})`);
+                dragGhostGroup.append("rect")
+                    .attr("x", -getTextWidth(d.data.text)/2)
+                    .attr("y", -24)
+                    .attr("width", getTextWidth(d.data.text))
+                    .attr("height", 48)
+                    .attr("rx", 12)
+                    .attr("class", "drag-ghost")
+                    .attr("fill", "#e2e8f0")
+                    .attr("stroke", "#3b82f6")
+                    .attr("stroke-dasharray", "4");
+                dragGhostGroup.append("text")
+                    .attr("dy", 4)
+                    .attr("text-anchor", "middle")
+                    .attr("fill", "#475569")
+                    .text(d.data.text.length > 20 ? d.data.text.slice(0,17)+"..." : d.data.text);
+                d3.select(this).classed("node-rect-dragging", true);
+            })
+            .on("drag", function(event, d) {
+                if (!dragGhostGroup) return;
+                const newX = d.y + event.dx;
+                const newY = d.x + event.dy;
+                dragGhostGroup.attr("transform", `translate(${newX},${newY})`);
+            })
+            .on("end", function(event, d) {
+                if (!dragGhostGroup) {
+                    d3.select(this).classed("node-rect-dragging", false);
+                    return;
+                }
+                // cari node terdekat (tanpa ghost)
+                const ghostX = parseFloat(dragGhostGroup.attr("transform").split(",")[0].split("(")[1]);
+                const ghostY = parseFloat(dragGhostGroup.attr("transform").split(",")[1].split(")")[0]);
+                // cari node terdekat di treeRoot
+                let closestNode = null;
+                let minDist = Infinity;
+                treeRoot.descendants().forEach(node => {
+                    if (node.data.id === d.data.id) return;
+                    const dx = node.y - ghostX;
+                    const dy = node.x - ghostY;
+                    const dist = Math.hypot(dx, dy);
+                    if (dist < minDist && dist < 80) {
+                        minDist = dist;
+                        closestNode = node.data;
+                    }
+                });
+                dragGhostGroup.remove();
+                dragGhostGroup = null;
+                d3.select(this).classed("node-rect-dragging", false);
+                
+                if (closestNode && closestNode.id !== d.data.id) {
+                    const userChoice = confirm(`Pindahkan node "${d.data.text}"?\nOK = sebagai anak dari "${closestNode.text}"\nBatal = sebagai saudara sejajar`);
+                    let success = false;
+                    if (userChoice) {
+                        success = moveAsChild(d.data.id, closestNode.id);
+                        if (!success) alert("Gagal memindahkan sebagai anak (mungkin menyebabkan siklus)");
+                    } else {
+                        success = moveAsSibling(d.data.id, closestNode.id);
+                        if (!success) alert("Gagal memindahkan sebagai saudara");
+                    }
+                    if (success) {
+                        renderMindMap();
+                        saveToFirebase();
+                        selectedNodeId = d.data.id;
+                    }
+                }
+            });
+        
+        const nodeGroups = mainG.selectAll(".node-group").data(treeRoot.descendants(), d => d.data.id);
+        nodeGroups.exit().remove();
+        
+        const nodeEnter = nodeGroups.enter().append("g")
             .attr("class", "node-group")
             .attr("transform", d => `translate(${d.y},${d.x})`)
             .attr("data-id", d => d.data.id)
             .on("click", function(event, d) {
                 event.stopPropagation();
                 selectedNodeId = d.data.id;
-                renderMindMap(); // re-render untuk menampilkan tombol plus
+                renderMindMap();
             })
             .on("dblclick", function(event, d) {
                 event.stopPropagation();
                 editNodeText(d.data.id);
-            });
+            })
+            .call(dragHandler);
         
-        // Tambahkan rect untuk setiap node
         nodeEnter.each(function(d) {
             const group = d3.select(this);
-            const text = d.data.text;
-            const rectW = getTextWidth(text);
-            const rectH = 48;
+            const rectW = getTextWidth(d.data.text);
             group.append("rect")
                 .attr("x", -rectW/2)
-                .attr("y", -rectH/2)
+                .attr("y", -24)
                 .attr("width", rectW)
-                .attr("height", rectH)
-                .attr("class", "node-rect")
+                .attr("height", 48)
+                .attr("class", d.data.id === selectedNodeId ? "node-rect node-rect-active" : "node-rect")
                 .attr("rx", 12);
             group.append("text")
                 .attr("class", "node-text")
                 .attr("dy", 4)
-                .text(text.length > 28 ? text.slice(0,25)+"..." : text);
+                .text(d.data.text.length > 28 ? d.data.text.slice(0,25)+"..." : d.data.text);
         });
         
-        // Update existing nodes (teks berubah)
-        nodes.select("rect")
-            .attr("width", function(d) { return getTextWidth(d.data.text); })
+        nodeGroups.select("rect")
+            .attr("width", d => getTextWidth(d.data.text))
             .attr("height", 48)
             .attr("class", d => d.data.id === selectedNodeId ? "node-rect node-rect-active" : "node-rect");
-        nodes.select("text")
+        nodeGroups.select("text")
             .text(d => d.data.text.length > 28 ? d.data.text.slice(0,25)+"..." : d.data.text);
-        nodes.attr("transform", d => `translate(${d.y},${d.x})`);
-        nodes.exit().remove();
+        nodeGroups.attr("transform", d => `translate(${d.y},${d.x})`);
         
-        // ========== TOMBOL PLUS untuk node yang terpilih ==========
+        // Tombol plus untuk node terpilih
         if (selectedNodeId) {
             const selectedHierarchy = treeRoot.descendants().find(d => d.data.id === selectedNodeId);
             if (selectedHierarchy) {
                 const nodeX = selectedHierarchy.y;
                 const nodeY = selectedHierarchy.x;
-                const nodeRectW = getTextWidth(selectedHierarchy.data.text);
-                const rectHalfW = nodeRectW / 2;
-                const rectH = 48;
-                // Tombol kanan (tambah anak) : posisi di kanan kotak
+                const rectW = getTextWidth(selectedHierarchy.data.text);
+                const rectHalfW = rectW / 2;
+                const plusGroup = mainG.append("g").attr("class", "plus-buttons-group");
                 const rightBtnX = nodeX + rectHalfW + 18;
                 const rightBtnY = nodeY;
-                // Tombol bawah (tambah saudara) : posisi di bawah kotak (hanya jika bukan root)
-                const bottomBtnX = nodeX;
-                const bottomBtnY = nodeY + rectH/2 + 18;
-                
-                const plusGroup = mainG.append("g").attr("class", "plus-buttons-group");
-                // Tombol Kanan: Tambah Anak
-                const rightCircle = plusGroup.append("circle")
+                plusGroup.append("circle")
                     .attr("cx", rightBtnX)
                     .attr("cy", rightBtnY)
                     .attr("r", 18)
@@ -400,11 +515,7 @@
                     .attr("stroke-width", 2)
                     .attr("class", "action-btn")
                     .style("cursor", "pointer")
-                    .style("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.2))")
-                    .on("click", (event) => {
-                        event.stopPropagation();
-                        addChild(selectedNodeId);
-                    });
+                    .on("click", (event) => { event.stopPropagation(); addChild(selectedNodeId); });
                 plusGroup.append("text")
                     .attr("x", rightBtnX)
                     .attr("y", rightBtnY)
@@ -415,23 +526,17 @@
                     .attr("font-weight", "bold")
                     .style("pointer-events", "none")
                     .text("+");
-                
-                // Tombol Bawah: Tambah Saudara (hanya jika bukan root)
                 if (selectedNodeId !== currentTreeData.id) {
-                    const bottomCircle = plusGroup.append("circle")
+                    const bottomBtnX = nodeX;
+                    const bottomBtnY = nodeY + 24 + 18;
+                    plusGroup.append("circle")
                         .attr("cx", bottomBtnX)
                         .attr("cy", bottomBtnY)
                         .attr("r", 18)
                         .attr("fill", "#f59e0b")
                         .attr("stroke", "#fff")
-                        .attr("stroke-width", 2)
                         .attr("class", "action-btn")
-                        .style("cursor", "pointer")
-                        .style("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.2))")
-                        .on("click", (event) => {
-                            event.stopPropagation();
-                            addSibling(selectedNodeId);
-                        });
+                        .on("click", (event) => { event.stopPropagation(); addSibling(selectedNodeId); });
                     plusGroup.append("text")
                         .attr("x", bottomBtnX)
                         .attr("y", bottomBtnY)
@@ -442,40 +547,26 @@
                         .attr("font-weight", "bold")
                         .style("pointer-events", "none")
                         .text("↧");
-                } else {
-                    // opsional tambah tooltip
                 }
             }
         }
-        // Jika ada zoom transform yang tersimpan, terapkan
-        if (currentTransform && zoomBehavior) {
-            svgElement.call(zoomBehavior.transform, currentTransform);
-        }
+        if (currentTransform && zoomBehavior) svgElement.call(zoomBehavior.transform, currentTransform);
     }
     
-    function highlightSelectedNode() {
-        renderMindMap();
-    }
-    
-    // Keyboard handling (Tab & Enter)
+    // Keyboard Tab/Enter
     function onKeyDownGlobal(event) {
         if (mindmapView.classList.contains("hidden")) return;
         if (!selectedNodeId || !currentTreeData) return;
-        if (event.key === "Tab") {
-            event.preventDefault();
-            addChild(selectedNodeId);
-        } else if (event.key === "Enter") {
-            event.preventDefault();
-            addSibling(selectedNodeId);
-        }
+        if (event.key === "Tab") { event.preventDefault(); addChild(selectedNodeId); }
+        else if (event.key === "Enter") { event.preventDefault(); addSibling(selectedNodeId); }
     }
     
-    // ----------------------------- DASHBOARD CRUD -----------------------------
+    // Dashboard CRUD (sama seperti sebelumnya)
     async function loadDashboard() {
         dashboardView.classList.remove("hidden");
         mindmapView.classList.add("hidden");
         backBtn.classList.add("hidden");
-        cardsContainer.innerHTML = `<div class="col-span-full text-center py-12"><i class="fas fa-spinner fa-pulse"></i> Memuat peta pikiran...</div>`;
+        cardsContainer.innerHTML = `<div class="col-span-full text-center py-12"><i class="fas fa-spinner fa-pulse"></i> Memuat...</div>`;
         try {
             const snap = await getDocs(mindmapsCollection);
             const cards = [];
@@ -485,9 +576,7 @@
                 return;
             }
             renderCards(cards);
-        } catch(err) {
-            cardsContainer.innerHTML = `<div class="col-span-full text-center text-red-500">Gagal: ${err.message}</div>`;
-        }
+        } catch(err) { cardsContainer.innerHTML = `<div class="col-span-full text-center text-red-500">Gagal: ${err.message}</div>`; }
     }
     
     function renderCards(cards) {
@@ -504,7 +593,7 @@
                             <button class="delete-card-btn text-red-500 p-1" data-id="${card.id}"><i class="fas fa-trash"></i></button>
                         </div>
                     </div>
-                    <div class="text-xs text-slate-400 mt-2 flex items-center gap-1"><i class="fas fa-code-branch"></i> Mind map interaktif</div>
+                    <div class="text-xs text-slate-400 mt-2"><i class="fas fa-code-branch"></i> Drag node untuk memindah</div>
                 </div>
             `;
             cardDiv.addEventListener("click", (e) => {
@@ -512,7 +601,6 @@
                 openMindmap(card.id, card.title, card.data);
             });
             cardsContainer.appendChild(cardDiv);
-            
             cardDiv.querySelector(".edit-card-btn").addEventListener("click", async (e) => {
                 e.stopPropagation();
                 const id = e.currentTarget.getAttribute("data-id");
@@ -525,7 +613,7 @@
             });
             cardDiv.querySelector(".delete-card-btn").addEventListener("click", async (e) => {
                 e.stopPropagation();
-                if (confirm("Hapus mind map ini secara permanen?")) {
+                if (confirm("Hapus mind map ini permanen?")) {
                     await deleteDoc(doc(db, "mindmaps", card.id));
                     loadDashboard();
                 }
@@ -537,12 +625,7 @@
         let title = prompt("Judul mind map baru:", "Mind Map Baru");
         if (!title) title = "Mind Map Baru";
         const newTree = createDefaultTree(title);
-        const docRef = await addDoc(mindmapsCollection, {
-            title: title,
-            data: newTree,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp()
-        });
+        const docRef = await addDoc(mindmapsCollection, { title, data: newTree, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
         await openMindmap(docRef.id, title, newTree);
     }
     
@@ -551,11 +634,8 @@
         let dataTree = treeData;
         if (!dataTree) {
             const docSnap = await getDoc(doc(db, "mindmaps", id));
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                title = data.title;
-                dataTree = data.data;
-            } else { alert("Data tidak ditemukan"); return; }
+            if (docSnap.exists()) { title = docSnap.data().title; dataTree = docSnap.data().data; }
+            else { alert("Data tidak ditemukan"); return; }
         }
         if (!dataTree || !dataTree.id) dataTree = createDefaultTree(title);
         currentTreeData = JSON.parse(JSON.stringify(dataTree));
@@ -580,42 +660,26 @@
         dashboardView.classList.remove("hidden");
         mindmapView.classList.add("hidden");
         backBtn.classList.add("hidden");
-        currentMindmapId = null;
-        currentTreeData = null;
-        selectedNodeId = null;
+        currentMindmapId = null; currentTreeData = null; selectedNodeId = null;
         loadDashboard();
     }
-    
     function logout() { sessionStorage.removeItem("mindmap_auth"); location.reload(); }
-    
     function checkAuth() {
         if (!loggedIn) {
             const pwd = prompt("🔐 Masukkan password:", "");
-            if (pwd === PASSWORD) {
-                sessionStorage.setItem("mindmap_auth", "true");
-                loggedIn = true;
-                loadDashboard();
-            } else {
-                alert("Password salah!");
-                document.body.innerHTML = "<div class='h-screen flex items-center justify-center'><div class='text-center p-6'><i class='fas fa-lock text-5xl text-red-400'></i><h2 class='text-xl font-bold mt-2'>Akses Ditolak</h2></div></div>";
-            }
+            if (pwd === PASSWORD) { sessionStorage.setItem("mindmap_auth", "true"); loggedIn = true; loadDashboard(); }
+            else { alert("Password salah!"); document.body.innerHTML = "<div class='h-screen flex items-center justify-center'><div class='text-center p-6'><i class='fas fa-lock text-5xl text-red-400'></i><h2>Akses Ditolak</h2></div></div>"; }
         } else { loadDashboard(); }
     }
     
-    // Event listeners
     window.addEventListener("keydown", onKeyDownGlobal);
-    window.addEventListener("resize", () => {
-        if (!mindmapView.classList.contains("hidden") && currentTreeData) {
-            initMindmapSVG();
-            renderMindMap();
-        }
-    });
+    window.addEventListener("resize", () => { if (!mindmapView.classList.contains("hidden") && currentTreeData) { initMindmapSVG(); renderMindMap(); } });
     addCardBtn.addEventListener("click", createNewCard);
     backBtn.addEventListener("click", backToDashboard);
     logoutBtn.addEventListener("click", logout);
     saveTitleBtn.addEventListener("click", updateMindmapTitle);
-    
     checkAuth();
 </script>
 </body>
 </html>
+```
